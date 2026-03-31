@@ -120,7 +120,45 @@ async function syncGainMulti(id, normalizedValue) {
             filterSettings: { db: dbValue }
         });
 
-    } catch (err) { logToUI('error', `CH-0${id+1} Sync: ${err.message}`); }
+    } catch (err) { logToUI('error', `CH-0${id+1} Gain Sync: ${err.message}`); }
+}
+
+async function syncEQMulti(id, band, normalizedValue) {
+    const mapping = channelMappings[id];
+    if (!mapping || obsStatus !== 'connected') return;
+
+    try {
+        const sourceName = mapping.sourceName;
+        const targetFilterName = `PANOLIVE EQ CH${id + 1}`;
+        
+        // --- MAPPING: -12.0 to +12.0 dB (OBS 3-Band EQ standard range) ---
+        const dbValue = (normalizedValue * 24.0) - 12.0;
+
+        // Ensure filter exists
+        try {
+            await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
+        } catch (e) {
+            await obs.call('CreateSourceFilter', {
+                sourceName,
+                filterName: targetFilterName,
+                filterKind: 'three_band_eq_filter',
+                filterSettings: { high_gain: 0.0, mid_gain: 0.0, low_gain: 0.0 }
+            });
+        }
+
+        // Apply specific band setting
+        const settings = {};
+        if (band === 'high') settings.high_gain = dbValue;
+        if (band === 'mid') settings.mid_gain = dbValue;
+        if (band === 'low') settings.low_gain = dbValue;
+
+        await obs.call('SetSourceFilterSettings', {
+            sourceName,
+            filterName: targetFilterName,
+            filterSettings: settings
+        });
+
+    } catch (err) { logToUI('error', `CH-0${id+1} EQ Sync: ${err.message}`); }
 }
 
 io.on('connection', (socket) => {
@@ -155,8 +193,10 @@ function connectRelay() {
             const msg = JSON.parse(data); 
             if (msg.type === 'gain') {
                 syncGainMulti(msg.id, msg.value); 
+            } else if (msg.type === 'eq') {
+                syncEQMulti(msg.id, msg.band, msg.value);
             } else if (msg.type === 'get_track_names') {
-                logBoth('info', `[リクエスト] 運営側からトラック名の同期要求が来ました`);
+                console.log(`[リクエスト] 運営側からトラック名の同期要求が来ました`);
                 [0, 1, 2].forEach(id => {
                     const mapping = channelMappings[id];
                     const name = (mapping && mapping.sourceName) ? mapping.sourceName : 'UNLINKED';

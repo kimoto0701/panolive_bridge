@@ -25,8 +25,60 @@ const CyberMeter = ({ value }: { value: number }) => {
   );
 };
 
+// --- PRO-STYLE KNOB COMPONENT ---
+const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value: number, onChange: (val: number) => void, isEnabled: boolean }) => {
+    const [isDragging, setIsDragging] = useState(false);
+    const lastY = useRef(0);
+    
+    const onMouseDown = (e: React.MouseEvent) => {
+        if (!isEnabled) return;
+        setIsDragging(true);
+        lastY.current = e.clientY;
+    };
+
+    useEffect(() => {
+        if (!isDragging) return;
+        const onMouseMove = (e: MouseEvent) => {
+            const delta = lastY.current - e.clientY;
+            lastY.current = e.clientY;
+            const newVal = Math.max(0, Math.min(1, value + delta / 200));
+            onChange(newVal);
+        };
+        const onMouseUp = () => setIsDragging(false);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+    }, [isDragging, value, onChange]);
+
+    const angle = (value * 270) - 135;
+
+    return (
+        <div className="flex flex-col items-center gap-1">
+            <div className={`text-[7px] font-black mb-1 ${isEnabled ? 'text-cyan-500' : 'text-white/10'}`}>{label}</div>
+            <div 
+                onMouseDown={onMouseDown}
+                onDoubleClick={() => isEnabled && onChange(0.5)}
+                className={`relative w-10 h-10 rounded-full border-2 transition-all cursor-ns-resize flex items-center justify-center ${isEnabled ? 'bg-cyan-950/40 border-cyan-500/30' : 'bg-transparent border-white/5 cursor-not-allowed'}`}
+            >
+                <motion.div 
+                    style={{ rotate: angle }}
+                    className={`w-full h-full rounded-full flex items-center justify-center pointer-events-none`}
+                >
+                    <div className={`absolute top-1 w-1 h-2 rounded-full ${isEnabled ? 'bg-cyan-400 shadow-[0_0_10px_#22d3ee]' : 'bg-white/10'}`} />
+                </motion.div>
+                <div className={`text-[8px] font-bold ${isEnabled ? 'text-cyan-400' : 'text-white/5'}`}>
+                    {Math.round((value * 24 - 12) * 10) / 10}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- STABLE MOTION FADER ---
-const CyberFader = ({ channelId, value, label, trackName, onValueChange, meterValue }: any) => {
+const CyberFader = ({ channelId, value, eq, label, trackName, onValueChange, onEQChange, meterValue }: any) => {
     const isDragging = useRef(false);
     const isEnabled = trackName && trackName !== 'UNLINKED';
     const y = useMotionValue((1 - (value - DB_MIN) / (DB_MAX - DB_MIN)) * TRACK_HEIGHT);
@@ -56,8 +108,16 @@ const CyberFader = ({ channelId, value, label, trackName, onValueChange, meterVa
     };
 
     return (
-        <div className={`flex flex-col items-center gap-4 bg-black/40 p-6 border rounded-xl transition-all select-none group ${isEnabled ? 'border-cyan-500/10 hover:border-cyan-400/40 shadow-lg' : 'border-white/5 opacity-30 grayscale contrast-75'}`}>
-            <div className={`flex items-center gap-2 mb-2 h-4 ${isEnabled ? 'text-cyan-400' : 'text-white/20'}`}>
+        <div className={`flex flex-col items-center gap-6 bg-black/40 p-6 border rounded-xl transition-all select-none group ${isEnabled ? 'border-cyan-500/10 hover:border-cyan-400/40 shadow-lg' : 'border-white/5 opacity-30 grayscale'}`}>
+            
+            {/* EQ SECTION */}
+            <div className="flex gap-3 pb-4 border-b border-cyan-500/10 mb-2">
+                <CyberKnob label="HIGH" value={eq.high} onChange={(v) => onEQChange(channelId, 'high', v)} isEnabled={isEnabled} />
+                <CyberKnob label="MID"  value={eq.mid}  onChange={(v) => onEQChange(channelId, 'mid', v)}  isEnabled={isEnabled} />
+                <CyberKnob label="LOW"  value={eq.low}  onChange={(v) => onEQChange(channelId, 'low', v)}  isEnabled={isEnabled} />
+            </div>
+
+            <div className={`flex items-center gap-2 -mt-2 h-4 ${isEnabled ? 'text-cyan-400' : 'text-white/20'}`}>
                 <Activity size={14} className={isEnabled ? "animate-pulse" : ""} />
                 <span className="text-[10px] font-black tracking-widest uppercase">{label}</span>
             </div>
@@ -110,6 +170,11 @@ const CyberFader = ({ channelId, value, label, trackName, onValueChange, meterVa
 export default function App() {
     const [status, setStatus] = useState('OFFLINE');
     const [channels, setChannels] = useState<{ [id: number]: number }>({ 0: 0, 1: 0, 2: 0 });
+    const [eqs, setEqs] = useState<{ [id: number]: { high: number, mid: number, low: number } }>({
+        0: { high: 0.5, mid: 0.5, low: 0.5 },
+        1: { high: 0.5, mid: 0.5, low: 0.5 },
+        2: { high: 0.5, mid: 0.5, low: 0.5 }
+    });
     const [meters, setMeters] = useState<{ [id: number]: number }>({ 0: -30, 1: -30, 2: -30 });
     const [trackNames, setTrackNames] = useState<{ [id: number]: string }>({ 0: '', 1: '', 2: '' });
     const wsRef = useRef<WebSocket | null>(null);
@@ -124,7 +189,7 @@ export default function App() {
             ws.onopen = () => { 
                 setStatus('CONNECTED'); 
                 ws.send(JSON.stringify({ type: 'join', room: sid }));
-                ws.send(JSON.stringify({ type: 'get_track_names' })); // Handled later if needed
+                ws.send(JSON.stringify({ type: 'get_track_names' }));
             };
             ws.onmessage = (e) => {
                 try {
@@ -147,8 +212,15 @@ export default function App() {
         }
     }, []);
 
+    const sendEQ = useCallback((id: number, band: string, val: number) => {
+        setEqs(prev => ({ ...prev, [id]: { ...prev[id], [band]: val } }));
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'eq', id, band, value: val }));
+        }
+    }, []);
+
     return (
-        <div className="h-screen bg-[#010203] text-cyan-50 font-mono p-10 overflow-hidden relative select-none uppercase tracking-widest">
+        <div className="h-screen bg-[#010203] text-cyan-50 font-mono p-10 overflow-auto relative select-none uppercase tracking-widest">
             <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(#06b6d4 1px, transparent 1px), linear-gradient(90deg, #06b6d4 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
             
             <header className="flex justify-between items-start mb-10 relative z-10 border-b border-cyan-500/10 pb-6">
@@ -167,10 +239,10 @@ export default function App() {
                 </div>
             </header>
 
-            <main className="flex gap-10 items-start relative z-10">
-                <CyberFader channelId={0} label="CH-01" trackName={trackNames[0]} value={channels[0]} meterValue={meters[0]} onValueChange={sendGain} />
-                <CyberFader channelId={1} label="CH-02" trackName={trackNames[1]} value={channels[1]} meterValue={meters[1]} onValueChange={sendGain} />
-                <CyberFader channelId={2} label="CH-03" trackName={trackNames[2]} value={channels[2]} meterValue={meters[2]} onValueChange={sendGain} />
+            <main className="flex gap-10 items-start relative z-10 pb-20">
+                <CyberFader channelId={0} label="CH-01" trackName={trackNames[0]} value={channels[0]} eq={eqs[0]} meterValue={meters[0]} onValueChange={sendGain} onEQChange={sendEQ} />
+                <CyberFader channelId={1} label="CH-02" trackName={trackNames[1]} value={channels[1]} eq={eqs[1]} meterValue={meters[1]} onValueChange={sendGain} onEQChange={sendEQ} />
+                <CyberFader channelId={2} label="CH-03" trackName={trackNames[2]} value={channels[2]} eq={eqs[2]} meterValue={meters[2]} onValueChange={sendGain} onEQChange={sendEQ} />
 
                 <div className="flex-1" />
 
