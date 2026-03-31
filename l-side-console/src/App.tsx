@@ -112,9 +112,9 @@ const CyberFader = ({ channelId, value, eq, label, trackName, onValueChange, onE
             
             {/* EQ SECTION */}
             <div className="flex gap-3 pb-4 border-b border-cyan-500/10 mb-2">
-                <CyberKnob label="HIGH" value={eq.high} onChange={(v) => onEQChange(channelId, 'high', v)} isEnabled={isEnabled} />
-                <CyberKnob label="MID"  value={eq.mid}  onChange={(v) => onEQChange(channelId, 'mid', v)}  isEnabled={isEnabled} />
                 <CyberKnob label="LOW"  value={eq.low}  onChange={(v) => onEQChange(channelId, 'low', v)}  isEnabled={isEnabled} />
+                <CyberKnob label="MID"  value={eq.mid}  onChange={(v) => onEQChange(channelId, 'mid', v)}  isEnabled={isEnabled} />
+                <CyberKnob label="HIGH" value={eq.high} onChange={(v) => onEQChange(channelId, 'high', v)} isEnabled={isEnabled} />
             </div>
 
             <div className={`flex items-center gap-2 -mt-2 h-4 ${isEnabled ? 'text-cyan-400' : 'text-white/20'}`}>
