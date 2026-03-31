@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PANOLIVE Bridge</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;900&family=JetBrains+Mono:wght@700&display=swap');
+        :root { --panolipink: #ff2d84; --cyber-cyan: #00f2ff; }
+        body { 
+            background: #fdfdfd; color: #333; font-family: 'M PLUS Rounded 1c', sans-serif;
+            background-image: radial-gradient(circle at 100% 0%, rgba(255, 45, 132, 0.04) 0%, transparent 40%);
+        }
+        .cyber-card { 
+            background: white; border: 2px solid rgba(255, 45, 132, 0.1);
+            box-shadow: 10px 10px 0px rgba(255, 45, 132, 0.03); border-radius: 24px;
+        }
+        .cyber-btn {
+            background: var(--panolipink); color: white; border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(255, 45, 132, 0.2); transition: all 0.2s;
+            clip-path: polygon(0 0, 95% 0, 100% 30%, 100% 100%, 5% 100%, 0 70%);
+        }
+        .step-num {
+            background: #fff0f6; color: var(--panolipink);
+            width: 32px; height: 32px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-weight: 900;
+        }
+        .warning-glow {
+            border: 2px solid #ff2d84;
+            box-shadow: 0 0 20px rgba(255, 45, 132, 0.2);
+        }
+    </style>
+</head>
+<body class="p-6 md:p-12 min-h-screen">
+    <div class="max-w-xl mx-auto space-y-8">
+        <!-- HEADER -->
+        <header class="flex items-center justify-between">
+            <h1 class="text-4xl font-extrabold tracking-tighter text-[#ff2d84] italic">PANOLIVE <span class="text-gray-800">Bridge</span></h1>
+            <div class="bg-gray-50 px-4 py-2 rounded-2xl flex items-center gap-2 border border-gray-100">
+                <div id="status-ball" class="w-2.5 h-2.5 rounded-full bg-gray-300"></div>
+                <span id="status-text" class="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">Status</span>
+            </div>
+        </header>
+
+        <!-- NO-CLOSE WARNING -->
+        <div class="bg-pink-600 p-4 rounded-2xl flex items-center gap-4 animate-pulse shadow-xl">
+            <span class="text-2xl">⚠️</span>
+            <p class="text-white font-black text-xs leading-relaxed">
+                重要なこと：ライブが終わるまで、この画面は絶対に閉じないでね！<br>
+                <span class="opacity-80 text-[10px]">（閉じると運営さんから操作ができなくなっちゃいます😢）</span>
+            </p>
+        </div>
+
+        <!-- STEP 0 -->
+        <section class="cyber-card p-8 border-l-8 border-l-gray-100" id="obs-step-card">
+            <div class="flex items-start gap-4">
+                <div class="step-num shadow-sm">0</div>
+                <div class="flex-1">
+                    <h2 class="text-md font-black text-gray-800 mb-1">OBSの準備をしてね！✨</h2>
+                    <div id="obs-status-msg" class="text-[11px] font-bold text-gray-400 mt-2">接続中...</div>
+                    <div id="obs-success" class="hidden mt-4 bg-green-50 p-4 rounded-xl flex items-center gap-3 border border-green-100">
+                        <span class="text-xl">✅</span>
+                        <p class="text-[11px] text-green-600 font-black leading-relaxed">バッチリ！OBSと繋がりました✨</p>
+                    </div>
+                    <div id="obs-instruction" class="hidden mt-4 space-y-2">
+                        <div class="bg-pink-50 p-5 rounded-2xl border-2 border-pink-100">
+                            <p class="text-xs font-black text-pink-500 mb-3">🔧 WebSocketをONにしてね！</p>
+                            <div class="text-[10px] font-bold text-pink-400 space-y-2">
+                                <p>1. OBSの一番上の「ツール」をクリック</p>
+                                <p>2. 「WebSocket サーバー設定」を選択</p>
+                                <p>3. 「サーバーを有効にする」をチェック✅</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 1 -->
+        <section class="cyber-card p-8 border-l-8 border-l-pink-400">
+            <div class="flex items-start gap-4">
+                <div class="step-num shadow-sm">1</div>
+                <div class="flex-1">
+                    <h2 class="text-md font-black text-gray-800 mb-1">OBSの音をライブ会場とリンクさせてね☺️</h2>
+                    <div id="mapping-list" class="space-y-3 mt-5">
+                         <div class="h-20 bg-gray-50 animate-pulse rounded-2xl"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- STEP 2 -->
+        <section class="cyber-card p-8 border-l-8 border-l-cyan-400">
+            <div class="flex items-start gap-4">
+                <div class="step-num shadow-sm">2</div>
+                <div class="flex-1">
+                    <h2 class="text-md font-black text-gray-800 mb-1">ここのURLを運営さんに送ってね！🚀</h2>
+                    <div class="mt-5 space-y-4">
+                        <div id="invite-url" class="p-4 bg-gray-50 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 text-[10px] break-all font-mono font-bold">URL発行中...✨</div>
+                        <button onclick="copyInvite()" class="cyber-btn w-full p-4 font-black">🔗 URLをコピーする！</button>
+                        <div id="copy-status" class="text-center text-[10px] font-black text-pink-400 opacity-0">コピーしたよ！✨</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- LOGS -->
+        <footer class="px-4">
+            <h3 class="text-[10px] font-black tracking-widest text-gray-300 mb-3 uppercase italic">がんばって働いています 🔧</h3>
+            <div id="logs" class="space-y-1 h-20 overflow-hidden text-gray-400 font-bold italic opacity-60"></div>
+        </footer>
+    </div>
+
+    <!-- TEMPLATE -->
+    <template id="ch-template">
+        <div class="flex items-center gap-3 bg-gray-50 p-1 pl-4 rounded-2xl border border-gray-100 hover:border-pink-200 transition-colors">
+            <span class="text-[9px] font-black text-pink-300 min-w-[30px] italic">CH</span>
+            <select class="flex-1 bg-transparent text-gray-700 text-[11px] font-bold py-3 outline-none cursor-pointer"></select>
+        </div>
+    </template>
+
+    <script>
+        const socket = io();
+        const mappingList = document.getElementById('mapping-list');
+        const template = document.getElementById('ch-template');
+
+        // --- U-TURU STOPPER (ACCIDENTAL CLOSE PREVENTION) ---
+        window.addEventListener('beforeunload', (event) => {
+            event.preventDefault();
+            event.returnValue = ''; // Standard way to trigger the confirmation dialog
+        });
+
+        socket.on('session_token', data => {
+            const url = `${data.lSideUrl}/?session=${data.token}`;
+            document.getElementById('invite-url').innerText = url;
+            document.getElementById('invite-url').className = "p-4 bg-pink-50 border-2 border-dashed border-pink-200 rounded-xl text-pink-500 text-[10px] break-all font-mono font-bold";
+        });
+
+        socket.on('status_update', data => {
+            if (data.id === 'obs') {
+                const ball = document.getElementById('status-ball');
+                const text = document.getElementById('status-text');
+                const success = document.getElementById('obs-success');
+                const inst = document.getElementById('obs-instruction');
+                const msg = document.getElementById('obs-status-msg');
+
+                if (data.status === 'connected') {
+                    ball.className = "w-2.5 h-2.5 rounded-full bg-green-400 shadow-[0_0_8px_green]";
+                    text.innerText = "LINKED";
+                    success.classList.remove('hidden');
+                    inst.classList.add('hidden');
+                    msg.classList.add('hidden');
+                } else {
+                    ball.className = "w-2.5 h-2.5 rounded-full bg-red-400 animate-pulse";
+                    text.innerText = "WAITING";
+                    success.classList.add('hidden');
+                    inst.classList.remove('hidden');
+                    msg.classList.add('hidden');
+                }
+            }
+        });
+
+        socket.on('filter_list', sources => {
+            mappingList.innerHTML = '';
+            [0, 1, 2].forEach(i => {
+                const clone = template.content.cloneNode(true);
+                const container = clone.querySelector('div');
+                const label = container.querySelector('span');
+                const select = container.querySelector('select');
+                label.innerText = `CH${i+1}`;
+                select.onchange = (e) => socket.emit('set_active_filter_multi', { id: i, sourceName: e.target.value });
+                sources.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.sourceName; opt.innerText = s.sourceName;
+                    select.appendChild(opt);
+                });
+                mappingList.appendChild(clone);
+            });
+        });
+
+        async function copyInvite() {
+            const url = document.getElementById('invite-url').innerText;
+            if (url.includes('...')) return;
+            await navigator.clipboard.writeText(url);
+            const status = document.getElementById('copy-status');
+            status.style.opacity = '1';
+            setTimeout(() => status.style.opacity = '0', 2000);
+            addLog('Copy', '招待リンクをコピーしたよ✨');
+        }
+
+        socket.on('log', data => addLog(data.type, data.message));
+
+        function addLog(type, message) {
+            const logs = document.getElementById('logs');
+            const div = document.createElement('div');
+            div.style.fontSize = '9px';
+            div.innerHTML = `<span class="text-pink-200">[${new Date().toLocaleTimeString()}]</span> <span class="text-pink-300 font-bold mr-2">${type}:</span> ${message}`;
+            logs.insertBefore(div, logs.firstChild);
+            if (logs.children.length > 4) logs.removeChild(logs.lastChild);
+        }
+    </script>
+</body>
+</html>
