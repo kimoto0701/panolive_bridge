@@ -130,8 +130,15 @@ io.on('connection', (socket) => {
     broadcastSources();
     
     socket.on('set_active_filter_multi', (data) => {
-        channelMappings[data.id] = { sourceName: data.sourceName };
-        logToUI('success', `CH-0${data.id + 1} LINKED: ${data.sourceName}`);
+        if (!data.sourceName) {
+            channelMappings[data.id] = null;
+            logToUI('success', `CH-0${data.id + 1} UNLINKED (オフにしました)`);
+            if (relayWs && relayWs.readyState === 1) relayWs.send(JSON.stringify({ type: 'track_name', id: data.id, name: 'UNLINKED' }));
+        } else {
+            channelMappings[data.id] = { sourceName: data.sourceName };
+            logToUI('success', `CH-0${data.id + 1} LINKED: ${data.sourceName}`);
+            if (relayWs && relayWs.readyState === 1) relayWs.send(JSON.stringify({ type: 'track_name', id: data.id, name: data.sourceName }));
+        }
     });
 });
 
@@ -146,13 +153,25 @@ function connectRelay() {
     relayWs.on('message', (data) => {
         try { 
             const msg = JSON.parse(data); 
-            if (msg.type === 'gain') syncGainMulti(msg.id, msg.value); 
+            if (msg.type === 'gain') {
+                syncGainMulti(msg.id, msg.value); 
+            } else if (msg.type === 'get_track_names') {
+                logBoth('info', `[リクエスト] 運営側からトラック名の同期要求が来ました`);
+                [0, 1, 2].forEach(id => {
+                    const mapping = channelMappings[id];
+                    const name = (mapping && mapping.sourceName) ? mapping.sourceName : 'UNLINKED';
+                    relayWs.send(JSON.stringify({ type: 'track_name', id, name }));
+                });
+            }
         } catch (err) {}
     });
     relayWs.on('close', () => {
         relayStatus = 'offline';
         updateStatus('relay', 'offline');
         setTimeout(connectRelay, 3000);
+    });
+    relayWs.on('error', (err) => {
+        logToUI('error', `Relay Server Error: ${err.code}`);
     });
 }
 
@@ -175,12 +194,46 @@ httpServer.on('error', (err) => {
     process.stdin.on('data', () => process.exit(1));
 });
 
-httpServer.listen(WEB_PORT, () => {
-    console.log(`\n[起動成功] VTuber Bridge Monitorが起動しました。`);
-    console.log(`ブラウザで http://localhost:${WEB_PORT} を開いてください。\n`);
-    console.log('終了する場合は、この黒いウィンドウ（コマンドプロンプト）の右上の×ボタンで閉じてください。\n');
-    exec(`start http://localhost:${WEB_PORT}`).on('error', () => {});
-});
+function killProcessOnPort(port) {
+    if (process.platform === 'win32') {
+        try {
+            const { execSync } = require('child_process');
+            const output = execSync(`netstat -ano | findstr :${port}`).toString();
+            const lines = output.trim().split('\n');
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                // TCP 0.0.0.0:3001 ... PID
+                if (parts.length >= 5 && parts[1].endsWith(`:${port}`)) {
+                    const pid = parts[parts.length - 1];
+                    if (pid && pid !== '0' && pid != process.pid) {
+                        execSync(`taskkill /F /PID ${pid}`);
+                        console.log(`[クリア] 前回のプロセス(PID: ${pid})を終了し、ポートを解放しました。`);
+                    }
+                }
+            }
+        } catch (e) {
+            // Nothing to kill
+        }
+    }
+}
+
+killProcessOnPort(WEB_PORT);
+
+setTimeout(() => {
+    httpServer.listen(WEB_PORT, () => {
+        console.log(`\n================================`);
+        console.log(`[起動成功] VTuber Bridge Monitor`);
+        console.log(`================================`);
+        console.log(`\n🔗 【招待URL】`);
+        console.log(`${L_SIDE_URL}/?session=${sessionToken}\n`);
+        console.log(`このURLをコピーして、親機（運営）にお伝えください！`);
+        console.log(`--------------------------------`);
+        console.log(`ブラウザで詳細画面を見たい場合は http://localhost:${WEB_PORT} を開いてください。\n`);
+        console.log('終了する場合は、この黒いウィンドウ（コマンドプロンプト）の右上の×ボタンで閉じてください。\n');
+        exec(`start http://localhost:${WEB_PORT}`).on('error', () => {});
+    });
+}, 500);
+
 
 process.on('uncaughtException', (err) => {
     console.error('\n[予期せぬエラーが発生しました]');

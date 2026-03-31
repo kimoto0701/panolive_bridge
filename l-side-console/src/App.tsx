@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, useMotionValue, useTransform } from 'framer-motion';
-import { Mic, Music, Headphones, Zap, Shield, Power, Activity } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, useMotionValue } from 'framer-motion';
+import { Activity } from 'lucide-react';
 
 const RELAY_URL = window.location.protocol === 'https:' ? `wss://${window.location.host}` : `ws://${window.location.host}`;
 const DB_MIN = -30.0;
@@ -26,8 +26,9 @@ const CyberMeter = ({ value }: { value: number }) => {
 };
 
 // --- STABLE MOTION FADER ---
-const CyberFader = ({ channelId, value, label, onValueChange }: any) => {
+const CyberFader = ({ channelId, value, label, trackName, onValueChange, meterValue }: any) => {
     const isDragging = useRef(false);
+    const isEnabled = trackName && trackName !== 'UNLINKED';
     const y = useMotionValue((1 - (value - DB_MIN) / (DB_MAX - DB_MIN)) * TRACK_HEIGHT);
 
     useEffect(() => {
@@ -39,56 +40,68 @@ const CyberFader = ({ channelId, value, label, onValueChange }: any) => {
 
     useEffect(() => {
         const unsubscribe = y.on('change', (latestY) => {
-            if (isDragging.current) {
+            if (isDragging.current && isEnabled) {
                 const norm = 1 - (latestY / TRACK_HEIGHT);
                 const dbVal = Math.round((norm * (DB_MAX - DB_MIN) + DB_MIN) * 10) / 10;
                 onValueChange(channelId, dbVal);
             }
         });
         return unsubscribe;
-    }, [channelId, onValueChange, y]);
+    }, [channelId, onValueChange, y, isEnabled]);
+
+    const handleDoubleClick = () => {
+        if (!isEnabled) return;
+        onValueChange(channelId, 0.0);
+        y.set((1 - (0.0 - DB_MIN) / (DB_MAX - DB_MIN)) * TRACK_HEIGHT);
+    };
 
     return (
-        <div className="flex flex-col items-center gap-4 bg-black/40 p-6 border border-cyan-500/10 rounded-xl hover:border-cyan-400/40 transition-all select-none group">
-            <div className="flex items-center gap-2 mb-2 text-cyan-400 h-4">
-                <Activity size={14} className="animate-pulse" />
+        <div className={`flex flex-col items-center gap-4 bg-black/40 p-6 border rounded-xl transition-all select-none group ${isEnabled ? 'border-cyan-500/10 hover:border-cyan-400/40 shadow-lg' : 'border-white/5 opacity-30 grayscale contrast-75'}`}>
+            <div className={`flex items-center gap-2 mb-2 h-4 ${isEnabled ? 'text-cyan-400' : 'text-white/20'}`}>
+                <Activity size={14} className={isEnabled ? "animate-pulse" : ""} />
                 <span className="text-[10px] font-black tracking-widest uppercase">{label}</span>
             </div>
 
             <div className="flex gap-6 items-center">
-                <CyberMeter value={value} />
-                <div className="relative h-[280px] w-12 flex flex-col items-center">
+                <CyberMeter value={isEnabled ? meterValue : DB_MIN} />
+                <div className={`relative h-[280px] w-12 flex flex-col items-center ${!isEnabled && 'pointer-events-none'}`}>
                     <div className="absolute -left-12 h-full flex flex-col justify-between text-[7px] font-mono text-cyan-500/30 py-1.5 select-none pointer-events-none">
-                        <span>+30.0</span><span>+20.0</span><span>+10.0</span><span className="text-cyan-400 font-black">0.0</span><span>-10.0</span><span>-20.0</span><span>-30.0</span>
+                        <span>+30.0</span><span>+20.0</span><span>+10.0</span><span className={isEnabled ? "text-cyan-400 font-black" : ""}>0.0</span><span>-10.0</span><span>-20.0</span><span>-30.0</span>
                     </div>
 
-                    <div className="w-1.5 h-full bg-black/95 border border-cyan-500/20 rounded-full relative">
+                    <div 
+                        onDoubleClick={handleDoubleClick}
+                        className={`w-1.5 h-full bg-black/95 border border-cyan-500/20 rounded-full relative ${isEnabled ? 'cursor-pointer' : ''}`}
+                    >
                         <motion.div
-                            drag="y"
+                            drag={isEnabled ? "y" : false}
                             dragConstraints={{ top: 0, bottom: TRACK_HEIGHT }}
                             dragElastic={0}
                             dragMomentum={false}
                             onDragStart={() => { isDragging.current = true; }}
                             onDragEnd={() => { isDragging.current = false; }}
+                            onDoubleClick={(e) => { e.stopPropagation(); handleDoubleClick(); }}
                             style={{ y }}
-                            whileHover={{ scale: 1.05 }}
-                            className="absolute -left-[27px] -top-[15px] w-14 h-8 cursor-ns-resize z-20"
+                            whileHover={isEnabled ? { scale: 1.05 } : {}}
+                            className={`absolute -left-[27px] -top-[15px] w-14 h-8 z-20 ${isEnabled ? 'cursor-ns-resize' : 'cursor-not-allowed opacity-10'}`}
                         >
-                            <div className="w-full h-full bg-cyan-950 border-2 border-cyan-400 rounded shadow-[0_0_20px_rgba(34,211,238,0.5)] flex items-center justify-center relative active:brightness-125">
-                                <div className="w-10 h-[2px] bg-white shadow-[0_0_10px_#fff]" />
-                                <div className="absolute inset-y-0 left-0 w-1 bg-cyan-400" />
-                                <div className="absolute inset-y-0 right-0 w-1 bg-cyan-400" />
+                            <div className={`w-full h-full bg-cyan-950 border-2 rounded flex items-center justify-center relative ${isEnabled ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)] active:brightness-125' : 'border-white/20'}`}>
+                                <div className={`w-10 h-[2px] ${isEnabled ? 'bg-white shadow-[0_0_10px_#fff]' : 'bg-white/10'}`} />
+                                <div className={`absolute inset-y-0 left-0 w-1 ${isEnabled ? 'bg-cyan-400' : 'bg-white/5'}`} />
+                                <div className={`absolute inset-y-0 right-0 w-1 ${isEnabled ? 'bg-cyan-400' : 'bg-white/5'}`} />
                             </div>
                         </motion.div>
                     </div>
                 </div>
             </div>
 
-            <div className="mt-4 bg-black border border-cyan-400/40 px-6 py-2 rounded-sm w-full text-center group-hover:border-cyan-400 transition-colors">
-                <motion.span className="text-xl font-mono font-black tracking-tighter text-cyan-400 block tabular-nums">
+            <div className={`mt-4 bg-black border px-6 py-2 rounded-sm w-full text-center transition-colors ${isEnabled ? 'border-cyan-400/40 group-hover:border-cyan-400' : 'border-white/5'}`}>
+                <motion.span className={`text-xl font-mono font-black tracking-tighter block tabular-nums ${isEnabled ? 'text-cyan-400' : 'text-white/20'}`}>
                     {value > 0 ? `+${value.toFixed(1)}` : value.toFixed(1)}
                 </motion.span>
-                <div className="text-[7px] text-cyan-500/50 font-black tracking-[0.4em] uppercase mt-1">PANOLIVE SOURCE</div>
+                <div className={`text-[9px] font-black tracking-widest uppercase mt-2 overflow-hidden text-ellipsis whitespace-nowrap max-w-[100px] ${isEnabled ? 'text-cyan-500' : 'text-white/10'}`}>
+                    {trackName || 'UNLINKED'}
+                </div>
             </div>
         </div>
     );
@@ -98,6 +111,7 @@ export default function App() {
     const [status, setStatus] = useState('OFFLINE');
     const [channels, setChannels] = useState<{ [id: number]: number }>({ 0: 0, 1: 0, 2: 0 });
     const [meters, setMeters] = useState<{ [id: number]: number }>({ 0: -30, 1: -30, 2: -30 });
+    const [trackNames, setTrackNames] = useState<{ [id: number]: string }>({ 0: '', 1: '', 2: '' });
     const wsRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
@@ -107,11 +121,16 @@ export default function App() {
         const connect = () => {
             const ws = new WebSocket(RELAY_URL);
             wsRef.current = ws;
-            ws.onopen = () => { setStatus('CONNECTED'); ws.send(JSON.stringify({ type: 'join', room: sid })); };
+            ws.onopen = () => { 
+                setStatus('CONNECTED'); 
+                ws.send(JSON.stringify({ type: 'join', room: sid }));
+                ws.send(JSON.stringify({ type: 'get_track_names' })); // Handled later if needed
+            };
             ws.onmessage = (e) => {
                 try {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'meter') setMeters(prev => ({ ...prev, [msg.id]: msg.value }));
+                    if (msg.type === 'track_name') setTrackNames(prev => ({ ...prev, [msg.id]: msg.name }));
                 } catch (err) {}
             };
             ws.onclose = () => { setStatus('RECONNECTING'); setTimeout(connect, 2000); };
@@ -149,9 +168,9 @@ export default function App() {
             </header>
 
             <main className="flex gap-10 items-start relative z-10">
-                <CyberFader channelId={0} label="CH-01" value={channels[0]} onValueChange={sendGain} />
-                <CyberFader channelId={1} label="CH-02" value={channels[1]} onValueChange={sendGain} />
-                <CyberFader channelId={2} label="CH-03" value={channels[2]} onValueChange={sendGain} />
+                <CyberFader channelId={0} label="CH-01" trackName={trackNames[0]} value={channels[0]} meterValue={meters[0]} onValueChange={sendGain} />
+                <CyberFader channelId={1} label="CH-02" trackName={trackNames[1]} value={channels[1]} meterValue={meters[1]} onValueChange={sendGain} />
+                <CyberFader channelId={2} label="CH-03" trackName={trackNames[2]} value={channels[2]} meterValue={meters[2]} onValueChange={sendGain} />
 
                 <div className="flex-1" />
 

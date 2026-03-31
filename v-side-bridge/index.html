@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PANOLIVE Bridge</title>
-    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;900&family=JetBrains+Mono:wght@700&display=swap');
@@ -168,14 +168,36 @@
                 const clone = template.content.cloneNode(true);
                 const container = clone.querySelector('div');
                 const label = container.querySelector('span');
-                const select = container.querySelector('select');
+                const select = clone.querySelector('select');
                 label.innerText = `CH${i+1}`;
-                select.onchange = (e) => socket.emit('set_active_filter_multi', { id: i, sourceName: e.target.value });
+                
+                // --- DEFAULT OFF OPTION ---
+                select.innerHTML = '<option value="" selected>❌ オフ (未接続)</option>';
+                
+                // --- POPULATE SOURCES ---
                 sources.forEach(s => {
                     const opt = document.createElement('option');
-                    opt.value = s.sourceName; opt.innerText = s.sourceName;
+                    opt.value = s.sourceName; opt.innerText = `🎧 ${s.sourceName}`;
                     select.appendChild(opt);
                 });
+
+                select.onchange = (e) => {
+                    const val = e.target.value;
+                    socket.emit('set_active_filter_multi', { id: i, sourceName: val });
+                    
+                    // --- STYLISH UI UPDATE ---
+                    if (val) {
+                        container.classList.remove('bg-gray-50', 'border-gray-100');
+                        container.classList.add('bg-pink-50', 'border-pink-300', 'shadow-md');
+                        label.classList.add('bg-pink-500', 'text-white', 'px-2', 'py-1', 'rounded-lg');
+                        label.classList.remove('text-pink-300');
+                    } else {
+                        container.classList.add('bg-gray-50', 'border-gray-100');
+                        container.classList.remove('bg-pink-50', 'border-pink-300', 'shadow-md');
+                        label.classList.remove('bg-pink-500', 'text-white', 'px-2', 'py-1', 'rounded-lg');
+                        label.classList.add('text-pink-300');
+                    }
+                };
                 mappingList.appendChild(clone);
             });
         });
