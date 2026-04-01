@@ -146,16 +146,17 @@ async function syncEQMulti(id, band, normalizedValue) {
         channelEqs[id][bandKey] = dbValue;
         channelEqs[id][titleKey] = dbValue;
 
-        // Ensure filter exists
+        // --- STEP 1: Debug Log for filter access attempt ---
         let exists = false;
         try {
-            await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
+            const filter = await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
             exists = true;
+            console.log(`[DEBUG] EQ Filter "${targetFilterName}" found. Kind: ${filter.filterKind}`);
         } catch (e) {
-            // Filter doesn't exist, create it
+            // --- STEP 2: Attempt creation if missing ---
+            console.log(`[DEBUG] EQ Filter "${targetFilterName}" not found. Attempting creation...`);
             try {
-                // Try three_band_eq_filter (OBS default)
-                await obs.call('CreateSourceFilter', {
+                const createResult = await obs.call('CreateSourceFilter', {
                     sourceName,
                     filterName: targetFilterName,
                     filterKind: 'three_band_eq_filter',
@@ -164,21 +165,34 @@ async function syncEQMulti(id, band, normalizedValue) {
                         Low: 0.0, Mid: 0.0, High: 0.0 // TitleCase fallback
                     }
                 });
+                console.log(`[DEBUG] EQ Filter creation result:`, createResult);
                 exists = true;
+                logToUI('success', `Created EQ filter: ${targetFilterName}`);
             } catch (err) {
-                logToUI('error', `Failed to create EQ filter on ${sourceName}: ${err.message}`);
+                const errMsg = `Failed to create EQ filter on ${sourceName}: ${err.message}`;
+                logToUI('error', errMsg);
+                console.error(`[CRITICAL] ${errMsg}`);
             }
         }
 
+        // --- STEP 3: Apply settings if filter exists or was created ---
         if (exists) {
-            await obs.call('SetSourceFilterSettings', {
-                sourceName,
-                filterName: targetFilterName,
-                filterSettings: channelEqs[id]
-            });
+            try {
+                await obs.call('SetSourceFilterSettings', {
+                    sourceName,
+                    filterName: targetFilterName,
+                    filterSettings: channelEqs[id]
+                });
+            } catch (err) {
+                logToUI('error', `Failed to set EQ settings: ${err.message}`);
+                console.error(`[ERROR] SetSourceFilterSettings failed:`, err);
+            }
         }
 
-    } catch (err) { logToUI('error', `CH-0${id+1} EQ Sync Exception: ${err.message}`); }
+    } catch (err) { 
+        logToUI('error', `EQ Sync Exception: ${err.message}`); 
+        console.error(`[EXCEPTION] syncEQMulti:`, err);
+    }
 }
 
 io.on('connection', (socket) => {
@@ -197,12 +211,23 @@ io.on('connection', (socket) => {
             logToUI('success', `CH-0${data.id + 1} LINKED: ${data.sourceName}`);
             if (relayWs && relayWs.readyState === 1) relayWs.send(JSON.stringify({ type: 'track_name', id: data.id, name: data.sourceName }));
             
-            // --- DEBUG: List existing filters for the linked source ---
+            // --- REVERSE LOOKUP (Inspector) ---
             try {
+                logToUI('info', `[RESEARCH] Analyzing filters for "${data.sourceName}"...`);
                 const { filters } = await obs.call('GetSourceFilterList', { sourceName: data.sourceName });
-                const filterNames = filters.map(f => `${f.filterName} (${f.filterKind})`).join(', ');
-                logToUI('info', `Source "${data.sourceName}" filters: ${filterNames || 'none'}`);
-            } catch (e) {}
+                
+                if (filters.length === 0) {
+                    logToUI('info', `[RESEARCH] No filters found on this source.`);
+                } else {
+                    filters.forEach(f => {
+                        logToUI('info', `[INSPECT] Filter: "${f.filterName}" (Kind: ${f.filterKind})`);
+                        logToUI('info', `[INSPECT] Current Settings: ${JSON.stringify(f.filterSettings)}`);
+                    });
+                }
+                logToUI('info', `[RESEARCH] Analysis complete.`);
+            } catch (e) {
+                logToUI('error', `[RESEARCH] Failed to analyze filters: ${e.message}`);
+            }
         }
     });
 });
