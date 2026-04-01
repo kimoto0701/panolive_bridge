@@ -28,9 +28,9 @@ let relayStatus = 'offline';
 // Multi-Channel State (ID: 0, 1, 2)
 let channelMappings = { 0: null, 1: null, 2: null };
 let channelEqs = {
-    0: { low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0 },
-    1: { low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0 },
-    2: { low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0 }
+    0: { low: 0.0, mid: 0.0, high: 0.0 },
+    1: { low: 0.0, mid: 0.0, high: 0.0 },
+    2: { low: 0.0, mid: 0.0, high: 0.0 }
 };
 let autoConfig = { port: 4455, password: '' };
 
@@ -39,9 +39,10 @@ const httpServer = http.createServer(app);
 const io = new Server(httpServer);
 const obs = new OBSWebSocket();
 
-// --- DYNAMIC FILTER DISCOVERY ---
-let detectedEQKind = 'three_band_eq_filter'; // Default
+// --- UNIVERSAL DISTRIBUTION & DYNAMIC DISCOVERY ---
+let detectedEQKind = 'basic_eq_filter'; // OBS 32.x confirmed correct
 let detectedGainKind = 'gain_filter';
+let obsVersionInfo = null;
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
@@ -76,11 +77,14 @@ async function connectOBS() {
     updateStatus('obs', 'connecting');
     try {
         await obs.connect(`ws://127.0.0.1:${autoConfig.port}`, autoConfig.password);
-        logToUI('success', '🧬 PANOLIVE Bridge Fully Synchronized.');
+        
+        // --- 1. GET SYSTEM VERSION ---
+        obsVersionInfo = await obs.call('GetVersion');
+        logToUI('success', `🧬 OBS ${obsVersionInfo.obsVersion} CONNECTED.`);
         updateStatus('obs', 'connected');
         
-        // --- AUTO-DISCOVER FILTER KINDS ---
-        await discoverFilterKinds();
+        // --- 2. AUTO-DISCOVER CAPABILITIES ---
+        await discoverSystemCapabilities();
         
         broadcastSources();
     } catch (err) {
@@ -89,26 +93,34 @@ async function connectOBS() {
     }
 }
 
-async function discoverFilterKinds() {
+async function discoverSystemCapabilities() {
     try {
-        logToUI('info', '[DETECT] Scanning your OBS for filter names...');
+        logToUI('info', '[RESEARCH] OBS 環境の全数調査を開始します...');
         const { inputs } = await obs.call('GetInputList');
+        
+        let foundAnything = false;
         for (const input of inputs) {
             const { filters } = await obs.call('GetSourceFilterList', { sourceName: input.inputName });
             for (const f of filters) {
-                // Heuristic to find EQ-like filters
+                foundAnything = true;
+                const msg = `[調査] "${input.inputName}" に "${f.filterName}" を発見 (Kind: ${f.filterKind})`;
+                logToUI('info', msg);
+                
+                // --- 究極の「何でもEQとみなす」ロジック ---
                 const k = f.filterKind.toLowerCase();
-                const n = f.filterName.toLowerCase();
-                if (k.includes('eq') || k.includes('equalizer') || n.includes('eq') || n.includes('equalizer')) {
-                    detectedEQKind = f.filterKind;
-                    logToUI('success', `[DETECT] Auto-learned EQ Filter Kind: "${detectedEQKind}"`);
-                    return;
+                if (k.includes('eq') || k.includes('equalizer') || k.includes('band')) {
+                    if (detectedEQKind !== f.filterKind) {
+                        detectedEQKind = f.filterKind;
+                        logToUI('success', `[確定] これを操作対象に指定しました: "${detectedEQKind}"`);
+                    }
                 }
             }
         }
-        logToUI('info', '[DETECT] No custom EQ found. Using standard defaults.');
+        if (!foundAnything) {
+            logToUI('warning', '[調査] 現在フィルタが1つもありません。OBSで手動でEQを追加すると自動学習します。');
+        }
     } catch (e) {
-        console.error('Filter discovery failed:', e);
+        logToUI('error', `[調査失敗] ${e.message}`);
     }
 }
 
@@ -168,52 +180,57 @@ async function syncEQMulti(id, band, normalizedValue) {
         const targetFilterName = `PANOLIVE EQ CH${id + 1}`;
         const dbValue = (normalizedValue * 24.0) - 12.0;
 
-        // Key mapping
-        const bandKey = `${band}_gain`;
-        const titleKey = band.charAt(0).toUpperCase() + band.slice(1);
-        channelEqs[id][bandKey] = dbValue;
-        channelEqs[id][titleKey] = dbValue;
+        // ✅ CONFIRMED CORRECT KEYS: low, mid, high (OBS 32.1.0 / basic_eq_filter)
+        channelEqs[id][band] = dbValue;
 
         let exists = false;
         try {
             await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
             exists = true;
         } catch (e) {
-            // Creation logic with fallback
-            const kindsToTry = [detectedEQKind, 'three_band_eq_filter', 'obs_three_band_eq_filter', 'eq_filter', 'exp_eq_filter'];
+            // Fallback chain: prioritize confirmed working kinds
+            const kindsToTry = [
+                detectedEQKind,
+                'basic_eq_filter',       // ✅ OBS 32.x confirmed
+                'three_band_eq_filter',  // OBS 29.x legacy
+                'obs_three_band_eq_filter',
+                'eq_filter',
+                'exp_eq_filter',
+            ];
+            
             for (const kind of kindsToTry) {
+                if (!kind) continue;
                 try {
                     await obs.call('CreateSourceFilter', {
                         sourceName,
                         filterName: targetFilterName,
                         filterKind: kind,
-                        filterSettings: { 
-                            low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0,
-                            Low: 0.0, Mid: 0.0, High: 0.0
-                        }
+                        filterSettings: { low: 0.0, mid: 0.0, high: 0.0 }
                     });
                     detectedEQKind = kind;
                     exists = true;
-                    logToUI('success', `Created EQ using kind: "${kind}"`);
+                    logToUI('success', `[EQ] フィルタ作成成功: "${kind}"`);
                     break;
                 } catch (err) {
-                    // Try next kind
+                    // Try next
                 }
             }
         }
 
         if (exists) {
+            // ✅ overlay:true to avoid resetting keys not in our payload
             await obs.call('SetSourceFilterSettings', {
                 sourceName,
                 filterName: targetFilterName,
-                filterSettings: channelEqs[id]
+                filterSettings: channelEqs[id],
+                overlay: true
             });
         } else {
-            logToUI('error', `CH-0${id+1}: Could not find a working EQ filter kind in your OBS.`);
+            logToUI('error', `[EQ] OBSで使えるEQフィルタ種類が見つかりませんでした。手動でEQを追加してください。`);
         }
 
     } catch (err) { 
-        logToUI('error', `EQ Sync Exception: ${err.message}`); 
+        logToUI('error', `EQ Sync: ${err.message}`); 
     }
 }
 
