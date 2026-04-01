@@ -139,9 +139,12 @@ async function syncEQMulti(id, band, normalizedValue) {
         // --- MAPPING: -12.0 to +12.0 dB (OBS 3-Band EQ standard range) ---
         const dbValue = (normalizedValue * 24.0) - 12.0;
 
-        // Update local state
+        // Update local state with multiple possible key names for maximum compatibility
         const bandKey = `${band}_gain`;
+        const titleKey = band.charAt(0).toUpperCase() + band.slice(1); // High, Mid, Low
+        
         channelEqs[id][bandKey] = dbValue;
+        channelEqs[id][titleKey] = dbValue;
 
         // Ensure filter exists
         let exists = false;
@@ -151,14 +154,14 @@ async function syncEQMulti(id, band, normalizedValue) {
         } catch (e) {
             // Filter doesn't exist, create it
             try {
+                // Try three_band_eq_filter (OBS default)
                 await obs.call('CreateSourceFilter', {
                     sourceName,
                     filterName: targetFilterName,
                     filterKind: 'three_band_eq_filter',
                     filterSettings: { 
-                        low_gain: 0.0, 
-                        mid_gain: 0.0, 
-                        high_gain: 0.0 
+                        low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0,
+                        Low: 0.0, Mid: 0.0, High: 0.0 // TitleCase fallback
                     }
                 });
                 exists = true;
@@ -184,7 +187,7 @@ io.on('connection', (socket) => {
     socket.emit('status_update', { id: 'relay', status: relayStatus });
     broadcastSources();
     
-    socket.on('set_active_filter_multi', (data) => {
+    socket.on('set_active_filter_multi', async (data) => {
         if (!data.sourceName) {
             channelMappings[data.id] = null;
             logToUI('success', `CH-0${data.id + 1} UNLINKED (オフにしました)`);
@@ -193,6 +196,13 @@ io.on('connection', (socket) => {
             channelMappings[data.id] = { sourceName: data.sourceName };
             logToUI('success', `CH-0${data.id + 1} LINKED: ${data.sourceName}`);
             if (relayWs && relayWs.readyState === 1) relayWs.send(JSON.stringify({ type: 'track_name', id: data.id, name: data.sourceName }));
+            
+            // --- DEBUG: List existing filters for the linked source ---
+            try {
+                const { filters } = await obs.call('GetSourceFilterList', { sourceName: data.sourceName });
+                const filterNames = filters.map(f => `${f.filterName} (${f.filterKind})`).join(', ');
+                logToUI('info', `Source "${data.sourceName}" filters: ${filterNames || 'none'}`);
+            } catch (e) {}
         }
     });
 });

@@ -61,12 +61,12 @@ const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value
     const circumference = 2 * Math.PI * radius;
 
     return (
-        <div className="flex flex-col items-center gap-1 group/knob">
-            <div className={`text-[8px] font-black mb-1 transition-colors ${isEnabled ? 'text-cyan-500/60 group-hover/knob:text-cyan-400' : 'text-white/10'}`}>{label}</div>
+        <div className="flex flex-col items-center gap-2 group/knob">
+            <div className={`text-[11px] font-black mb-1 transition-all ${isEnabled ? 'text-cyan-400 group-hover/knob:scale-110' : 'text-white/10'}`}>{label}</div>
             <div 
                 onMouseDown={onMouseDown}
                 onDoubleClick={() => isEnabled && onChange(0.5)}
-                className={`relative w-12 h-12 rounded-full transition-all cursor-ns-resize flex items-center justify-center ${isEnabled ? 'bg-black/40 border border-cyan-500/20 shadow-[inset_0_0_10px_rgba(6,182,212,0.1)]' : 'bg-transparent border-white/5 cursor-not-allowed'}`}
+                className={`relative w-14 h-14 rounded-full transition-all cursor-ns-resize flex items-center justify-center ${isEnabled ? 'bg-black/60 border-2 border-cyan-500/30' : 'bg-transparent border-white/5 cursor-not-allowed'}`}
             >
                 {/* SVG Ring */}
                 <svg className="absolute inset-0 w-full h-full -rotate-[225deg]" viewBox="0 0 40 40">
@@ -104,8 +104,8 @@ const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value
                 </motion.div>
 
                 {/* Value Text (Floating on hover or always) */}
-                <div className={`absolute -bottom-4 text-[7px] font-mono whitespace-nowrap transition-opacity ${isEnabled ? 'text-cyan-400 opacity-60 group-hover/knob:opacity-100' : 'text-white/10 opacity-0'}`}>
-                    {Math.round((value * 24 - 12) * 10) / 10}dB
+                <div className={`absolute -bottom-5 text-[10px] font-mono font-black tabular-nums whitespace-nowrap transition-all ${isEnabled ? 'text-cyan-400 opacity-80 group-hover/knob:opacity-100' : 'text-white/10 opacity-0'}`}>
+                    {value > 0.51 ? '+' : value < 0.49 ? '' : ''}{Math.round((value * 24 - 12) * 10) / 10}<span className="text-[7px] ml-0.5 opacity-50">dB</span>
                 </div>
             </div>
         </div>
