@@ -25,34 +25,32 @@ const CyberMeter = ({ value }: { value: number }) => {
   );
 };
 
-// --- PRO-STYLE KNOB COMPONENT ---
+// --- PRO-STYLE KNOB COMPONENT (Mouse + iPad Touch対応) ---
 const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value: number, onChange: (val: number) => void, isEnabled: boolean }) => {
-    const [isDragging, setIsDragging] = useState(false);
+    const isDragging = useRef(false);
     const lastY = useRef(0);
-    
-    const onMouseDown = (e: React.MouseEvent) => {
+
+    // --- PointerEvents: マウスとタッチを統一処理 ---
+    const onPointerDown = (e: React.PointerEvent) => {
         if (!isEnabled) return;
-        setIsDragging(true);
+        isDragging.current = true;
         lastY.current = e.clientY;
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        e.preventDefault();
     };
 
-    useEffect(() => {
-        if (!isDragging) return;
-        const onMouseMove = (e: MouseEvent) => {
-            const delta = lastY.current - e.clientY;
-            lastY.current = e.clientY;
-            // Sensitivity adjustment: delta / 200
-            const newVal = Math.max(0, Math.min(1, value + delta / 200));
-            onChange(newVal);
-        };
-        const onMouseUp = () => setIsDragging(false);
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
-        return () => {
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
-        };
-    }, [isDragging, value, onChange]);
+    const onPointerMove = (e: React.PointerEvent) => {
+        if (!isDragging.current || !isEnabled) return;
+        const delta = lastY.current - e.clientY;
+        lastY.current = e.clientY;
+        const newVal = Math.max(0, Math.min(1, value + delta / 200));
+        onChange(newVal);
+        e.preventDefault();
+    };
+
+    const onPointerUp = () => {
+        isDragging.current = false;
+    };
 
     const angle = (value * 270) - 135;
     
@@ -64,8 +62,12 @@ const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value
         <div className="flex flex-col items-center gap-2 group/knob">
             <div className={`text-[11px] font-black mb-1 transition-all ${isEnabled ? 'text-cyan-400 group-hover/knob:scale-110' : 'text-white/10'}`}>{label}</div>
             <div 
-                onMouseDown={onMouseDown}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
                 onDoubleClick={() => isEnabled && onChange(0.5)}
+                style={{ touchAction: 'none' }}
                 className={`relative w-14 h-14 rounded-full transition-all cursor-ns-resize flex items-center justify-center ${isEnabled ? 'bg-black/60 border-2 border-cyan-500/30' : 'bg-transparent border-white/5 cursor-not-allowed'}`}
             >
                 {/* SVG Ring */}

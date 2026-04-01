@@ -16,8 +16,8 @@ if (fs.existsSync(configPath)) {
     try { fileConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) { console.error('config.json load error', e); }
 }
 
-const RELAY_URL = process.env.RELAY_URL || fileConfig.RELAY_URL || 'ws://localhost:8080';
-const L_SIDE_URL = process.env.L_SIDE_URL || fileConfig.L_SIDE_URL || 'http://localhost:5173';
+const RELAY_URL = process.env.RELAY_URL || fileConfig.RELAY_URL || 'wss://panolive-bridge.onrender.com';
+const L_SIDE_URL = process.env.L_SIDE_URL || fileConfig.L_SIDE_URL || 'https://panolive-bridge.onrender.com';
 const WEB_PORT = 3001;
 
 // Rebranded Session Token
