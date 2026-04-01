@@ -39,6 +39,10 @@ const httpServer = http.createServer(app);
 const io = new Server(httpServer);
 const obs = new OBSWebSocket();
 
+// --- DYNAMIC FILTER DISCOVERY ---
+let detectedEQKind = 'three_band_eq_filter'; // Default
+let detectedGainKind = 'gain_filter';
+
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 function logToUI(type, message) {
@@ -74,10 +78,37 @@ async function connectOBS() {
         await obs.connect(`ws://127.0.0.1:${autoConfig.port}`, autoConfig.password);
         logToUI('success', '🧬 PANOLIVE Bridge Fully Synchronized.');
         updateStatus('obs', 'connected');
+        
+        // --- AUTO-DISCOVER FILTER KINDS ---
+        await discoverFilterKinds();
+        
         broadcastSources();
     } catch (err) {
         updateStatus('obs', 'offline');
         setTimeout(connectOBS, 5000);
+    }
+}
+
+async function discoverFilterKinds() {
+    try {
+        logToUI('info', '[DETECT] Scanning your OBS for filter names...');
+        const { inputs } = await obs.call('GetInputList');
+        for (const input of inputs) {
+            const { filters } = await obs.call('GetSourceFilterList', { sourceName: input.inputName });
+            for (const f of filters) {
+                // Heuristic to find EQ-like filters
+                const k = f.filterKind.toLowerCase();
+                const n = f.filterName.toLowerCase();
+                if (k.includes('eq') || k.includes('equalizer') || n.includes('eq') || n.includes('equalizer')) {
+                    detectedEQKind = f.filterKind;
+                    logToUI('success', `[DETECT] Auto-learned EQ Filter Kind: "${detectedEQKind}"`);
+                    return;
+                }
+            }
+        }
+        logToUI('info', '[DETECT] No custom EQ found. Using standard defaults.');
+    } catch (e) {
+        console.error('Filter discovery failed:', e);
     }
 }
 
@@ -135,63 +166,54 @@ async function syncEQMulti(id, band, normalizedValue) {
     try {
         const sourceName = mapping.sourceName;
         const targetFilterName = `PANOLIVE EQ CH${id + 1}`;
-        
-        // --- MAPPING: -12.0 to +12.0 dB (OBS 3-Band EQ standard range) ---
         const dbValue = (normalizedValue * 24.0) - 12.0;
 
-        // Update local state with multiple possible key names for maximum compatibility
+        // Key mapping
         const bandKey = `${band}_gain`;
-        const titleKey = band.charAt(0).toUpperCase() + band.slice(1); // High, Mid, Low
-        
+        const titleKey = band.charAt(0).toUpperCase() + band.slice(1);
         channelEqs[id][bandKey] = dbValue;
         channelEqs[id][titleKey] = dbValue;
 
-        // --- STEP 1: Debug Log for filter access attempt ---
         let exists = false;
         try {
-            const filter = await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
+            await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
             exists = true;
-            console.log(`[DEBUG] EQ Filter "${targetFilterName}" found. Kind: ${filter.filterKind}`);
         } catch (e) {
-            // --- STEP 2: Attempt creation if missing ---
-            console.log(`[DEBUG] EQ Filter "${targetFilterName}" not found. Attempting creation...`);
-            try {
-                const createResult = await obs.call('CreateSourceFilter', {
-                    sourceName,
-                    filterName: targetFilterName,
-                    filterKind: 'three_band_eq_filter',
-                    filterSettings: { 
-                        low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0,
-                        Low: 0.0, Mid: 0.0, High: 0.0 // TitleCase fallback
-                    }
-                });
-                console.log(`[DEBUG] EQ Filter creation result:`, createResult);
-                exists = true;
-                logToUI('success', `Created EQ filter: ${targetFilterName}`);
-            } catch (err) {
-                const errMsg = `Failed to create EQ filter on ${sourceName}: ${err.message}`;
-                logToUI('error', errMsg);
-                console.error(`[CRITICAL] ${errMsg}`);
+            // Creation logic with fallback
+            const kindsToTry = [detectedEQKind, 'three_band_eq_filter', 'obs_three_band_eq_filter', 'eq_filter', 'exp_eq_filter'];
+            for (const kind of kindsToTry) {
+                try {
+                    await obs.call('CreateSourceFilter', {
+                        sourceName,
+                        filterName: targetFilterName,
+                        filterKind: kind,
+                        filterSettings: { 
+                            low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0,
+                            Low: 0.0, Mid: 0.0, High: 0.0
+                        }
+                    });
+                    detectedEQKind = kind;
+                    exists = true;
+                    logToUI('success', `Created EQ using kind: "${kind}"`);
+                    break;
+                } catch (err) {
+                    // Try next kind
+                }
             }
         }
 
-        // --- STEP 3: Apply settings if filter exists or was created ---
         if (exists) {
-            try {
-                await obs.call('SetSourceFilterSettings', {
-                    sourceName,
-                    filterName: targetFilterName,
-                    filterSettings: channelEqs[id]
-                });
-            } catch (err) {
-                logToUI('error', `Failed to set EQ settings: ${err.message}`);
-                console.error(`[ERROR] SetSourceFilterSettings failed:`, err);
-            }
+            await obs.call('SetSourceFilterSettings', {
+                sourceName,
+                filterName: targetFilterName,
+                filterSettings: channelEqs[id]
+            });
+        } else {
+            logToUI('error', `CH-0${id+1}: Could not find a working EQ filter kind in your OBS.`);
         }
 
     } catch (err) { 
         logToUI('error', `EQ Sync Exception: ${err.message}`); 
-        console.error(`[EXCEPTION] syncEQMulti:`, err);
     }
 }
 
