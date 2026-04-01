@@ -27,6 +27,11 @@ let relayStatus = 'offline';
 
 // Multi-Channel State (ID: 0, 1, 2)
 let channelMappings = { 0: null, 1: null, 2: null };
+let channelEqs = {
+    0: { low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0 },
+    1: { low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0 },
+    2: { low_gain: 0.0, mid_gain: 0.0, high_gain: 0.0 }
+};
 let autoConfig = { port: 4455, password: '' };
 
 const app = express();
@@ -134,31 +139,43 @@ async function syncEQMulti(id, band, normalizedValue) {
         // --- MAPPING: -12.0 to +12.0 dB (OBS 3-Band EQ standard range) ---
         const dbValue = (normalizedValue * 24.0) - 12.0;
 
+        // Update local state
+        const bandKey = `${band}_gain`;
+        channelEqs[id][bandKey] = dbValue;
+
         // Ensure filter exists
+        let exists = false;
         try {
             await obs.call('GetSourceFilter', { sourceName, filterName: targetFilterName });
+            exists = true;
         } catch (e) {
-            await obs.call('CreateSourceFilter', {
+            // Filter doesn't exist, create it
+            try {
+                await obs.call('CreateSourceFilter', {
+                    sourceName,
+                    filterName: targetFilterName,
+                    filterKind: 'three_band_eq_filter',
+                    filterSettings: { 
+                        low_gain: 0.0, 
+                        mid_gain: 0.0, 
+                        high_gain: 0.0 
+                    }
+                });
+                exists = true;
+            } catch (err) {
+                logToUI('error', `Failed to create EQ filter on ${sourceName}: ${err.message}`);
+            }
+        }
+
+        if (exists) {
+            await obs.call('SetSourceFilterSettings', {
                 sourceName,
                 filterName: targetFilterName,
-                filterKind: 'three_band_eq_filter',
-                filterSettings: { high_gain: 0.0, mid_gain: 0.0, low_gain: 0.0 }
+                filterSettings: channelEqs[id]
             });
         }
 
-        // Apply specific band setting
-        const settings = {};
-        if (band === 'high') settings.high_gain = dbValue;
-        if (band === 'mid') settings.mid_gain = dbValue;
-        if (band === 'low') settings.low_gain = dbValue;
-
-        await obs.call('SetSourceFilterSettings', {
-            sourceName,
-            filterName: targetFilterName,
-            filterSettings: settings
-        });
-
-    } catch (err) { logToUI('error', `CH-0${id+1} EQ Sync: ${err.message}`); }
+    } catch (err) { logToUI('error', `CH-0${id+1} EQ Sync Exception: ${err.message}`); }
 }
 
 io.on('connection', (socket) => {

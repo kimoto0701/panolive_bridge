@@ -41,6 +41,7 @@ const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value
         const onMouseMove = (e: MouseEvent) => {
             const delta = lastY.current - e.clientY;
             lastY.current = e.clientY;
+            // Sensitivity adjustment: delta / 200
             const newVal = Math.max(0, Math.min(1, value + delta / 200));
             onChange(newVal);
         };
@@ -54,23 +55,57 @@ const CyberKnob = ({ label, value, onChange, isEnabled }: { label: string, value
     }, [isDragging, value, onChange]);
 
     const angle = (value * 270) - 135;
+    
+    // SVG Arc for visual feedback
+    const radius = 16;
+    const circumference = 2 * Math.PI * radius;
 
     return (
-        <div className="flex flex-col items-center gap-1">
-            <div className={`text-[7px] font-black mb-1 ${isEnabled ? 'text-cyan-500' : 'text-white/10'}`}>{label}</div>
+        <div className="flex flex-col items-center gap-1 group/knob">
+            <div className={`text-[8px] font-black mb-1 transition-colors ${isEnabled ? 'text-cyan-500/60 group-hover/knob:text-cyan-400' : 'text-white/10'}`}>{label}</div>
             <div 
                 onMouseDown={onMouseDown}
                 onDoubleClick={() => isEnabled && onChange(0.5)}
-                className={`relative w-10 h-10 rounded-full border-2 transition-all cursor-ns-resize flex items-center justify-center ${isEnabled ? 'bg-cyan-950/40 border-cyan-500/30' : 'bg-transparent border-white/5 cursor-not-allowed'}`}
+                className={`relative w-12 h-12 rounded-full transition-all cursor-ns-resize flex items-center justify-center ${isEnabled ? 'bg-black/40 border border-cyan-500/20 shadow-[inset_0_0_10px_rgba(6,182,212,0.1)]' : 'bg-transparent border-white/5 cursor-not-allowed'}`}
             >
+                {/* SVG Ring */}
+                <svg className="absolute inset-0 w-full h-full -rotate-[225deg]" viewBox="0 0 40 40">
+                    <circle
+                        cx="20" cy="20" r={radius}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="text-white/5"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={circumference * 0.25}
+                    />
+                    {isEnabled && (
+                        <motion.circle
+                            cx="20" cy="20" r={radius}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            className="text-cyan-400 shadow-[0_0_10px_#22d3ee]"
+                            strokeDasharray={circumference}
+                            animate={{ strokeDashoffset: circumference - (value * 0.75 * circumference) }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                            strokeLinecap="round"
+                        />
+                    )}
+                </svg>
+
+                {/* Knob Body */}
                 <motion.div 
                     style={{ rotate: angle }}
-                    className={`w-full h-full rounded-full flex items-center justify-center pointer-events-none`}
+                    className={`w-8 h-8 rounded-full border flex items-center justify-center relative shadow-xl ${isEnabled ? 'bg-gradient-to-br from-cyan-900 to-black border-cyan-500/40' : 'bg-transparent border-white/10'}`}
                 >
-                    <div className={`absolute top-1 w-1 h-2 rounded-full ${isEnabled ? 'bg-cyan-400 shadow-[0_0_10px_#22d3ee]' : 'bg-white/10'}`} />
+                    {/* Indicator Dot */}
+                    <div className={`absolute top-1 w-1 h-1.5 rounded-full ${isEnabled ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]' : 'bg-white/10'}`} />
                 </motion.div>
-                <div className={`text-[8px] font-bold ${isEnabled ? 'text-cyan-400' : 'text-white/5'}`}>
-                    {Math.round((value * 24 - 12) * 10) / 10}
+
+                {/* Value Text (Floating on hover or always) */}
+                <div className={`absolute -bottom-4 text-[7px] font-mono whitespace-nowrap transition-opacity ${isEnabled ? 'text-cyan-400 opacity-60 group-hover/knob:opacity-100' : 'text-white/10 opacity-0'}`}>
+                    {Math.round((value * 24 - 12) * 10) / 10}dB
                 </div>
             </div>
         </div>
